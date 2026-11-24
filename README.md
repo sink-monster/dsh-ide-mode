@@ -1,5 +1,7 @@
 # DSH IDE Mode
 
+English · [简体中文](README.zh-CN.md)
+
 IDE mode plugin for DeepSeek Harness. It adds a switch to the top-left corner of
 the conversation header. Turn it on and the main area becomes a workspace:
 Explorer, Search, Source control, an editor and a terminal drawer. The
