@@ -96,10 +96,12 @@ dsh plugin --profile desktop add github:sink-monster/dsh-ide-mode
 # (profile package.json → dsh.profile.bundles, append "dsh-ide-mode")
 ```
 
-**2. From a release tarball**
+**2. From a tarball (offline or pinned)**
 
 ```bash
-dsh plugin --profile desktop add https://github.com/sink-monster/dsh-ide-mode/releases/download/v1.0.0/dsh-ide-mode-1.0.0.tgz
+# build one from a clone, then install that file anywhere
+pnpm pack                     # → dsh-ide-mode-1.1.0.tgz
+dsh plugin --profile desktop add ./dsh-ide-mode-1.1.0.tgz
 ```
 
 **3. For development, from a clone**
