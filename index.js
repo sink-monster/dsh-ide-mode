@@ -14,6 +14,8 @@
  * - `POST /ide-mode/git/branch` — list local branches, or switch to one.
  * - `POST /ide-mode/git/log`    — the newest commits, one line each.
  * - `POST /ide-mode/git/init`   — create a repository in a workspace that has none.
+ * - `POST /ide-mode/git/remote` — the remote the workspace pushes to, as coordinates.
+ * - `POST /ide-mode/git/sync`   — fetch, pull --ff-only, or push one time.
  * - `POST /ide-mode/exec`       — run one shell command in a workspace directory.
  * - `POST /ide-mode/fs/list`    — list one directory's direct children.
  * - `POST /ide-mode/fs/search`  — find files by name, or grep text, under the root.
@@ -101,6 +103,10 @@ const BRANCH_PATH = '/ide-mode/git/branch'
 const LOG_PATH = '/ide-mode/git/log'
 /** `git init` for a workspace that has no repository yet. */
 const INIT_PATH = '/ide-mode/git/init'
+/** Which remote the workspace talks to, read straight out of git config. */
+const REMOTE_PATH = '/ide-mode/git/remote'
+/** fetch / pull / push: the only three commands that touch another machine. */
+const SYNC_PATH = '/ide-mode/git/sync'
 const EXEC_PATH = '/ide-mode/exec'
 const LIST_PATH = '/ide-mode/fs/list'
 const SEARCH_PATH = '/ide-mode/fs/search'
@@ -438,6 +444,62 @@ async function searchContents(root, query, limit) {
  * @param text - NUL-framed porcelain.
  * @returns branch facts and change rows; rename origins are consumed, not reported.
  */
+/**
+ * Turn one remote URL into the coordinates a link can be built from.
+ * Understands the two spellings git writes: `host:path` (scp) and `scheme://`.
+ * @param value - one URL exactly as `git remote -v` printed it.
+ * @returns host/owner/repo/web/provider, or null when it is not a remote URL.
+ */
+export function parseRemoteUrl(value) {
+  if (typeof value !== 'string') return null
+  const raw = value.trim()
+  if (raw === '') return null
+  let authority
+  let path
+  const scp = /^[^@/\s]+@([^:/\s]+):(.+)$/.exec(raw)
+  if (scp !== null) {
+    authority = scp[1]
+    path = scp[2]
+  } else {
+    const url = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]+@)?([^/]+)\/(.+)$/i.exec(raw)
+    if (url === null) return null
+    authority = url[1]
+    path = url[2]
+  }
+  // A port belongs to the transport, not to the web host.
+  const host = authority.replace(/:\d+$/, '').toLowerCase()
+  const trimmed = path.replace(/\/+$/, '').replace(/\.git$/i, '').trim()
+  const pieces = trimmed.split('/').filter(piece => piece !== '')
+  if (pieces.length < 2) return null
+  const repo = pieces[pieces.length - 1]
+  const owner = pieces.slice(0, pieces.length - 1).join('/')
+  return {
+    host,
+    owner,
+    repo,
+    web: `https://${host}/${owner}/${repo}`,
+    provider: host === 'github.com' || host === 'www.github.com' ? 'github' : 'git',
+  }
+}
+
+/**
+ * Choose the remote worth showing: `origin` when it exists, else the first fetch URL.
+ * @param text - output of `git remote -v`.
+ * @returns { name, url, host, owner, repo, web, provider } or null.
+ */
+export function parseRemotes(text) {
+  const found = []
+  for (const line of text.split('\n')) {
+    const parts = line.trim().split(/\s+/)
+    if (parts.length < 3 || parts[2] !== '(fetch)') continue
+    const coordinates = parseRemoteUrl(parts[1])
+    if (coordinates === null) continue
+    found.push({ name: parts[0], url: parts[1], ...coordinates })
+  }
+  if (found.length === 0) return null
+  return found.find(remote => remote.name === 'origin') ?? found[0]
+}
+
 export function parsePorcelain(text) {
   const tokens = text.split('\0')
   const entries = []
@@ -845,6 +907,95 @@ export function apply(ctx) {
       }
     },
   }), 'ide-mode: git init')
+
+  // The GitHub panel is a thin read over git itself: which remote exists, where
+  // it points, and nothing else. No token, no OAuth — the URL git already stores
+  // is enough to build commit and compare links, and sync runs the real command.
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: REMOTE_PATH,
+    handler: async (req, res) => {
+      const admitted = await admit(req, res, SMALL_BODY_BYTES)
+      if (admitted === null) return
+      try {
+        const result = await runGit(admitted.root, ['remote', '-v'])
+        if (result.code !== 0) {
+          const failure = failureOf(result)
+          if (failure.reason === 'not-a-repo') {
+            sendJson(res, 200, { isRepo: false, remote: null })
+            return
+          }
+          sendJson(res, 502, failure)
+          return
+        }
+        sendJson(res, 200, { isRepo: true, remote: parseRemotes(result.stdout) })
+      } catch (error) {
+        console.warn('[ide-mode] git remote failed:', error)
+        sendJson(res, 500, { reason: 'git-unavailable', detail: String(error?.message ?? error).slice(0, 400) })
+      }
+    },
+  }), 'ide-mode: git remote')
+
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: SYNC_PATH,
+    handler: async (req, res) => {
+      const admitted = await admit(req, res, SMALL_BODY_BYTES)
+      if (admitted === null) return
+      const action = admitted.body.action
+      if (action !== 'fetch' && action !== 'pull' && action !== 'push') {
+        sendJson(res, 400, { reason: 'bad-action' })
+        return
+      }
+      try {
+        const remotes = await runGit(admitted.root, ['remote', '-v'])
+        if (remotes.code !== 0) {
+          sendJson(res, 502, failureOf(remotes))
+          return
+        }
+        const remote = parseRemotes(remotes.stdout)
+        if (remote === null) {
+          sendJson(res, 409, { reason: 'no-remote' })
+          return
+        }
+        let args
+        if (action === 'fetch') {
+          // `--prune` keeps the branch list honest; it never touches the worktree.
+          args = ['fetch', '--prune', remote.name]
+        } else if (action === 'pull') {
+          // `--ff-only` refuses to invent a merge commit behind the user's back.
+          args = ['pull', '--ff-only']
+        } else {
+          const head = await runGit(admitted.root, ['rev-parse', '--abbrev-ref', 'HEAD'])
+          const branch = head.code === 0 ? head.stdout.trim() : ''
+          if (branch === '' || branch === 'HEAD') {
+            sendJson(res, 409, { reason: 'detached' })
+            return
+          }
+          // A branch with no upstream would fail a bare `push`, so set it once.
+          const upstream = await runGit(admitted.root, ['rev-parse', '--abbrev-ref', `${branch}@{upstream}`])
+          args = upstream.code === 0 ? ['push'] : ['push', '-u', remote.name, branch]
+        }
+        const result = await runGit(admitted.root, args)
+        if (result.code !== 0) {
+          const failure = failureOf(result)
+          // Unpushed commits are an expected answer, not a broken pane.
+          const rejected = /\[rejected\]|non-fast-forward|fetch first/i.test(result.stderr)
+          sendJson(res, rejected ? 409 : 502, rejected ? { reason: 'rejected', detail: failure.detail } : failure)
+          return
+        }
+        const summary = `${result.stdout}\n${result.stderr}`
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line !== '')
+          .slice(-6)
+        sendJson(res, 200, { ok: true, action, remote: remote.name, summary })
+      } catch (error) {
+        console.warn('[ide-mode] git sync failed:', error)
+        sendJson(res, 500, { reason: 'git-unavailable', detail: String(error?.message ?? error).slice(0, 400) })
+      }
+    },
+  }), 'ide-mode: git sync')
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',

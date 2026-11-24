@@ -67,6 +67,22 @@ Both modes skip generated directories (`node_modules`, `dist`, `.git`,
 - a branch menu that lists local branches and switches to one, plus a history
   button with the newest commits.
 
+Below the branch line sits the **remote row**. It shows the remote the workspace
+pushes to — a `GitHub` badge when the host is `github.com` (any other host shows
+its own name) and the `owner/repo` it resolves to — and three buttons: fetch
+(`--prune`), pull (fast-forward only), and push. Clicking the row opens the
+repository in the system browser; with a GitHub remote, each commit in the
+history list links to its own page. The remote URL is parsed, not trusted: scp
+(`git@host:owner/repo.git`) and URL forms both work, the port and `.git` suffix
+are dropped, and a nested group (`group/sub/repo`) keeps its full owner.
+
+Sync is one round trip and never guesses: fetch prunes, pull refuses to merge
+(`--ff-only`), and push goes bare when the branch already has an upstream and
+`-u origin <branch>` when it does not. A detached HEAD, a missing remote, and a
+non-fast-forward rejection each come back as their own message instead of a raw
+`git` failure. Credential prompts cannot be answered from a browser surface, so
+push relies on the credential helper that already works in a shell.
+
 `git` is discovered once: every `PATHEXT` variant on `PATH`, then the usual
 install locations (including `D:\Soft Ware\Git\cmd\git.exe` and a portable
 `PortableGit`), then the nested `git.exe` inside the ops shell bundle. Only a
@@ -119,13 +135,15 @@ own geometry and behaviour.
 
 Host work travels over this plugin's own same-origin routes, all admitted
 through the composition's `connection` trust fence before anything else runs:
-Git status / index / commit / diff / discard / branch / log / init, one shell
-command, and file list / search / read /
+Git status / index / commit / diff / discard / branch / log / init / remote /
+sync, one shell command, and file list / search / read /
 write / mkdir / delete. Every filesystem route takes the workspace root from
 the caller and refuses a target that resolves outside it; Git receives `--`
 before pathspecs, and a path that starts with `-` is refused outright. Commands
 run through the composed `subprocess` provider as an argv array, never through
-a shell.
+a shell. Opening a repository or commit page is a plain `https` navigation
+handed to the window opener, which the desktop shell forwards to the system
+browser — the plugin never proxies GitHub.
 
 ## Limits worth knowing
 
@@ -137,5 +155,6 @@ a shell.
 - One buffer at a time: switching files asks before dropping an unsaved edit
   instead of keeping both open.
 - Git covers the working tree: status, index, commit, inline diff, discard,
-  branch switch, log, and init. Remotes, push/pull, rebase, and merge resolvers
-  are out of scope, and `discard` only ever touches the worktree — never `--hard`.
+  branch switch, log, init, and one remote round trip (fetch, pull `--ff-only`,
+  push). Rebase, merge resolvers, and interactive credential prompts are out of
+  scope, and `discard` only ever touches the worktree — never `--hard`.

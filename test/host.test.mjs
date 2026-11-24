@@ -9,7 +9,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
-import { apply, parsePorcelain } from '../index.js'
+import { apply, parsePorcelain, parseRemoteUrl, parseRemotes } from '../index.js'
 
 let failures = 0
 let checks = 0
@@ -527,6 +527,118 @@ try {
     eq(failed.status, 502, 'a failing init answers 502')
   }
 
+  // ── Remote URL parsing: both spellings git writes ──────────────────────
+  {
+    eq(parseRemotes('origin\tgit@github.com:sink-monster/dsh-ide-mode.git (fetch)\norigin\tgit@github.com:sink-monster/dsh-ide-mode.git (push)\n'),
+      { name: 'origin', url: 'git@github.com:sink-monster/dsh-ide-mode.git', host: 'github.com', owner: 'sink-monster', repo: 'dsh-ide-mode', web: 'https://github.com/sink-monster/dsh-ide-mode', provider: 'github' },
+      'an scp remote becomes coordinates')
+    eq(parseRemoteUrl('https://github.com/o/r.git'),
+      { host: 'github.com', owner: 'o', repo: 'r', web: 'https://github.com/o/r', provider: 'github' },
+      'an https remote becomes coordinates')
+    eq(parseRemoteUrl('ssh://git@gitlab.example.com:2222/group/sub/repo.git'),
+      { host: 'gitlab.example.com', owner: 'group/sub', repo: 'repo', web: 'https://gitlab.example.com/group/sub/repo', provider: 'git' },
+      'a port is not part of the host and nested groups survive')
+    eq(parseRemoteUrl('not a url'), null, 'an unparseable remote is refused')
+    eq(parseRemotes(''), null, 'no remotes yields null')
+    eq(parseRemotes('upstream\thttps://github.com/a/b.git (fetch)\nupstream\thttps://github.com/a/b.git (push)\n').name, 'upstream', 'the first fetch URL stands in for a missing origin')
+    eq(parseRemotes('origin\thttps://github.com/a/b.git (push)\n'), null, 'a push-only line is not a fetch remote')
+  }
+
+  // ── Git remote: which remote the workspace talks to ────────────────────
+  {
+    const { routes, spawned } = makeContext({
+      spawn: (spec) => {
+        if (isGitArgv(spec.argv) && spec.argv.includes('remote')) {
+          return { exitCode: 0, stdout: 'origin\tgit@github.com:sink-monster/dsh-ide-mode.git (fetch)\norigin\tgit@github.com:sink-monster/dsh-ide-mode.git (push)\n', stderr: '' }
+        }
+        return defaultSpawn(spec)
+      },
+    })
+    const reply = await call(routes, '/ide-mode/git/remote', { root: work })
+    eq(reply.status, 200, 'remote answers 200')
+    eq(reply.body.remote?.repo, 'dsh-ide-mode', 'the remote name is read from git')
+    eq(reply.body.remote?.provider, 'github', 'a github remote is labelled')
+    ok(spawned[0].argv.includes('remote'), 'remote reaches git')
+
+    const none = await call((makeContext({
+      spawn: (spec) => (isGitArgv(spec.argv) && spec.argv.includes('remote')
+        ? { exitCode: 0, stdout: '', stderr: '' }
+        : defaultSpawn(spec)),
+    })).routes, '/ide-mode/git/remote', { root: work })
+    eq(none.body.remote, null, 'a repository without remotes reports null')
+
+    const outside = await call((makeContext({
+      spawn: (spec) => (isGitArgv(spec.argv) && spec.argv.includes('remote')
+        ? { exitCode: 128, stdout: '', stderr: 'fatal: not a git repository (or any of the parent directories): .git' }
+        : defaultSpawn(spec)),
+    })).routes, '/ide-mode/git/remote', { root: work })
+    eq(outside.body.isRepo, false, 'a folder outside a repository reports isRepo false')
+  }
+
+  // ── Git sync: fetch, pull, push ────────────────────────────────────────
+  {
+    const remotes = 'origin\tgit@github.com:sink-monster/dsh-ide-mode.git (fetch)\n'
+    const make = (overrides = {}) => makeContext({
+      spawn: (spec) => {
+        const args = spec.argv
+        if (isGitArgv(args) && args.includes('remote')) return { exitCode: 0, stdout: remotes, stderr: '' }
+        if (isGitArgv(args) && args.includes('rev-parse') && args.some(arg => arg.endsWith('@{upstream}'))) {
+          return overrides.upstream ?? { exitCode: 0, stdout: 'origin/main\n', stderr: '' }
+        }
+        if (isGitArgv(args) && args.includes('rev-parse') && args.includes('--abbrev-ref')) {
+          return overrides.head ?? { exitCode: 0, stdout: 'main\n', stderr: '' }
+        }
+        if (isGitArgv(args) && (args.includes('fetch') || args.includes('pull') || args.includes('push'))) {
+          return overrides.sync ?? { exitCode: 0, stdout: 'done\n', stderr: '' }
+        }
+        return defaultSpawn(spec)
+      },
+    })
+
+    const fetchContext = make()
+    const fetched = await call(fetchContext.routes, '/ide-mode/git/sync', { root: work, action: 'fetch' })
+    eq(fetched.status, 200, 'fetch answers 200')
+    ok(fetchContext.spawned.some(spec => spec.argv.includes('fetch') && spec.argv.includes('--prune') && spec.argv.includes('origin')),
+      'fetch prunes the named remote')
+
+    const pullContext = make()
+    const pulled = await call(pullContext.routes, '/ide-mode/git/sync', { root: work, action: 'pull' })
+    eq(pulled.status, 200, 'pull answers 200')
+    ok(pullContext.spawned.some(spec => spec.argv.includes('pull') && spec.argv.includes('--ff-only')),
+      'pull never invents a merge commit')
+
+    const pushContext = make()
+    await call(pushContext.routes, '/ide-mode/git/sync', { root: work, action: 'push' })
+    ok(pushContext.spawned.some(spec => spec.argv.includes('push') && !spec.argv.includes('-u')),
+      'a branch with an upstream pushes plainly')
+
+    const firstPush = make({ upstream: { exitCode: 128, stdout: '', stderr: 'fatal: no upstream configured\n' } })
+    await call(firstPush.routes, '/ide-mode/git/sync', { root: work, action: 'push' })
+    ok(firstPush.spawned.some(spec => spec.argv.includes('push') && spec.argv.includes('-u') && spec.argv.includes('main')),
+      'a branch without an upstream sets it once')
+
+    const detached = await call(make({ head: { exitCode: 0, stdout: 'HEAD\n', stderr: '' } }).routes,
+      '/ide-mode/git/sync', { root: work, action: 'push' })
+    eq(detached.status, 409, 'a detached head refuses to push')
+    eq(detached.body.reason, 'detached', 'and says why')
+
+    eq((await call(make().routes, '/ide-mode/git/sync', { root: work, action: 'force' })).status, 400,
+      'an unknown sync action is refused')
+
+    const rejected = await call(make({ sync: { exitCode: 1, stdout: '', stderr: ' ! [rejected] main -> main (fetch first)' } }).routes,
+      '/ide-mode/git/sync', { root: work, action: 'push' })
+    eq(rejected.status, 409, 'a rejected push is a conflict, not a broken pane')
+    eq(rejected.body.reason, 'rejected', 'and says so')
+
+    const noRemote = await call((makeContext({
+      spawn: (spec) => (isGitArgv(spec.argv) && spec.argv.includes('remote')
+        ? { exitCode: 0, stdout: '', stderr: '' }
+        : defaultSpawn(spec)),
+    })).routes, '/ide-mode/git/sync', { root: work, action: 'fetch' })
+    eq(noRemote.status, 409, 'syncing without a remote is refused')
+    eq(noRemote.body.reason, 'no-remote', 'and names the missing remote')
+  }
+
   // ── Every route is registered ──────────────────────────────────────────
   {
     const { routes } = makeContext()
@@ -534,6 +646,7 @@ try {
       '/ide-mode/git/status', '/ide-mode/git/index', '/ide-mode/git/commit',
       '/ide-mode/git/diff', '/ide-mode/git/discard', '/ide-mode/git/branch', '/ide-mode/git/log',
       '/ide-mode/git/init',
+      '/ide-mode/git/remote', '/ide-mode/git/sync',
       '/ide-mode/exec',
       '/ide-mode/fs/list', '/ide-mode/fs/search', '/ide-mode/fs/read',
       '/ide-mode/fs/write', '/ide-mode/fs/mkdir', '/ide-mode/fs/delete',

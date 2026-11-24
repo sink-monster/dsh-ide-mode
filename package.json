@@ -1,10 +1,28 @@
 {
   "name": "dsh-ide-mode",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
-  "description": "IDE mode for the DSH web client: a top-left mode switch that turns the shell into an Explorer/Search/Git + File/Terminal workspace around the live conversation.",
+  "description": "IDE mode for the DeepSeek Harness web client: a top-left switch that turns the shell into an Explorer / Search / Source control + editor + terminal workspace around the live conversation.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "deepseek-harness",
+    "ide",
+    "editor",
+    "git"
+  ],
   "license": "MIT",
+  "author": "sink-monster",
+  "homepage": "https://github.com/sink-monster/dsh-ide-mode#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sink-monster/dsh-ide-mode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sink-monster/dsh-ide-mode/issues"
+  },
   "main": "index.js",
   "exports": {
     ".": "./index.js",
@@ -20,8 +38,14 @@
     "lib",
     "locale/*.json",
     "docs",
-    "icon.svg"
+    "icon.svg",
+    "CHANGELOG.md"
   ],
+  "scripts": {
+    "test": "node test/activation.test.mjs && node test/host.test.mjs",
+    "test:activation": "node test/activation.test.mjs",
+    "test:host": "node test/host.test.mjs"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

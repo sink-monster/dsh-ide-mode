@@ -60,6 +60,8 @@ window.__ModuleLoader__.load({
       branch: 'ide-mode/git/branch',
       log: 'ide-mode/git/log',
       init: 'ide-mode/git/init',
+      remote: 'ide-mode/git/remote',
+      sync: 'ide-mode/git/sync',
       exec: 'ide-mode/exec',
       list: 'ide-mode/fs/list',
       search: 'ide-mode/fs/search',
@@ -129,6 +131,11 @@ window.__ModuleLoader__.load({
       'git.history': '最近提交', 'git.logFailed': '读取历史失败：{reason}', 'git.noDiff': '没有差异可显示',
       'git.stageFailed': '暂存失败：{reason}', 'git.unstageFailed': '取消暂存失败：{reason}',
       'git.commitFailed': '提交失败：{reason}',
+      'git.fetch': '获取远端更新', 'git.pull': '拉取（仅快进）', 'git.push': '推送到远端',
+      'git.fetched': '已获取远端更新', 'git.pulled': '已拉取', 'git.pushed': '已推送',
+      'git.syncFailed': '同步失败：{reason}', 'git.noRemote': '没有配置远端',
+      'git.rejected': '远端有你本地没有的提交，先拉取再推送',
+      'git.openRemote': '在浏览器中打开仓库', 'git.openCommit': '在浏览器中打开提交',
       'common.loading': '加载中…', 'common.close': '关闭', 'common.cancel': '取消',
       'common.retry': '重试', 'common.none': '无',
     }
@@ -191,6 +198,11 @@ window.__ModuleLoader__.load({
       'git.history': 'Recent commits', 'git.logFailed': 'History failed: {reason}', 'git.noDiff': 'No differences to show',
       'git.stageFailed': 'Could not stage: {reason}', 'git.unstageFailed': 'Could not unstage: {reason}',
       'git.commitFailed': 'Could not commit: {reason}',
+      'git.fetch': 'Fetch from remote', 'git.pull': 'Pull (fast-forward only)', 'git.push': 'Push to remote',
+      'git.fetched': 'Fetched from remote', 'git.pulled': 'Pulled', 'git.pushed': 'Pushed',
+      'git.syncFailed': 'Sync failed: {reason}', 'git.noRemote': 'No remote configured',
+      'git.rejected': 'The remote has commits you do not have; pull before pushing',
+      'git.openRemote': 'Open repository in browser', 'git.openCommit': 'Open commit in browser',
       'common.loading': 'Loading…', 'common.close': 'Close', 'common.cancel': 'Cancel',
       'common.retry': 'Retry', 'common.none': 'None',
     }
@@ -442,6 +454,32 @@ html[data-dide-switching] [data-animating] * { transition-duration: 0s !importan
 .dide-git-branch { display: inline-flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; }
 .dide-git-branch span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dide-git-track { font-size: 11px; color: var(--dsw-alias-label-secondary); white-space: nowrap; }
+/* The remote line: one row that answers "where does this push to?" and holds the
+   three commands that reach it. It sits under the branch row so a workspace with
+   no remote simply has no second row. */
+.dide-git-remote {
+  display: flex; align-items: center; gap: 4px; flex: none; min-height: 28px;
+  padding: 0 8px 0 10px; border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+}
+.dide-git-remote-open {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px;
+  border: none; border-radius: 4px; background: transparent; color: inherit;
+  font: inherit; font-size: 11.5px; cursor: pointer;
+}
+.dide-git-remote-open:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.dide-git-remote-open svg { color: var(--dsw-alias-label-secondary); }
+.dide-git-remote-badge {
+  flex: none; padding: 0 6px; height: 16px; display: inline-flex; align-items: center;
+  border-radius: 8px; background: var(--dsw-alias-bg-layer-2);
+  font-size: 10px; letter-spacing: 0.02em; color: var(--dsw-alias-label-secondary);
+}
+.dide-git-remote[data-provider='github'] .dide-git-remote-badge { color: var(--dsw-alias-label-primary); }
+.dide-git-remote-path {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, monospace;
+}
+.dide-icon-button[data-syncing] { color: var(--dsw-alias-brand-primary); animation: dide-pulse 900ms ease-in-out infinite; }
 /* The branch chip is a menu button: it opens the branch inventory. */
 .dide-git-branch-host { position: relative; display: flex; align-items: center; min-width: 0; }
 button.dide-git-branch {
@@ -479,6 +517,10 @@ button.dide-git-branch:disabled { cursor: default; }
 .dide-git-log-hash { flex: none; font-family: ui-monospace, monospace; color: var(--dsw-alias-brand-primary); }
 .dide-git-log-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-primary); }
 .dide-git-log-when { flex: none; color: var(--dsw-alias-label-secondary); }
+/* A commit row is a link only when the remote can resolve it; hover says so. */
+.dide-git-log-row[role='button'] { cursor: pointer; border-radius: 4px; }
+.dide-git-log-row[role='button']:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.dide-git-log-link { flex: none; display: inline-flex; color: var(--dsw-alias-label-secondary); }
 .dide-icon-button[data-on] { color: var(--dsw-alias-brand-primary); }
 .dide-git-row[data-preview] { background: var(--dsw-alias-bg-layer-2); }
 .dide-git-group { display: flex; flex-direction: column; padding: 4px 0; }
@@ -781,6 +823,11 @@ button.dide-git-branch:disabled { cursor: default; }
         viewBox: '0 0 16 16', width: size, height: size, fill: 'none', stroke: 'currentColor',
         strokeWidth: 1.4, strokeLinejoin: 'round', 'aria-hidden': true, focusable: false,
       }, h('rect', { x: 2, y: 3, width: 12, height: 10, rx: 1.6 }), h('path', { d: 'M9 3v10M2 8h7' })),
+      // Remote glyphs: a cloud for fetch, arrows for the two that move a branch.
+      cloud: () => stroke(['M4.6 12.2h6.6a2.6 2.6 0 0 0 .3-5.2 3.6 3.6 0 0 0-6.8-.9 2.9 2.9 0 0 0-.1 6.1z']),
+      down: () => stroke(['M8 3.2v8.2', 'M4.6 8.2 8 11.6l3.4-3.4']),
+      up: () => stroke(['M8 12.8V4.6', 'M4.6 8 8 4.6 11.4 8']),
+      external: () => stroke(['M9.6 3.2h3.2v3.2', 'M12.8 3.2 7.2 8.8', 'M11.4 9.6v2.6a1 1 0 0 1-1 1H3.6a1 1 0 0 1-1-1V5.4a1 1 0 0 1 1-1h2.6']),
     }
 
     // ── Host calls and path helpers ────────────────────────────────────────
@@ -833,6 +880,19 @@ button.dide-git-branch:disabled { cursor: default; }
     function parentOf(path) {
       const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
       return cut <= 0 ? '' : path.slice(0, cut)
+    }
+
+    /**
+     * Hand one https URL to the user's browser.
+     * The desktop shell routes `window.open` targets through `shell.openExternal`,
+     * so a plain call opens the real browser instead of a second app window.
+     * @param url - absolute http(s) URL.
+     */
+    function openExternal(url) {
+      if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return
+      const opener = typeof window.open === 'function' ? window.open : undefined
+      if (opener === undefined) return
+      opener.call(window, url, '_blank', 'noopener,noreferrer')
     }
 
     /**
@@ -1500,6 +1560,10 @@ button.dide-git-branch:disabled { cursor: default; }
       const [preview, setPreview] = useState(undefined)
       /** The last handful of commits, loaded on demand. */
       const [log, setLog] = useState(undefined)
+      /** The remote the workspace pushes to, or null when none is configured. */
+      const [remote, setRemote] = useState(undefined)
+      /** Which remote button is running, so only that one reads as busy. */
+      const [syncing, setSyncing] = useState(undefined)
 
       const load = useCallback(async () => {
         if (root === undefined) return
@@ -1523,6 +1587,24 @@ button.dide-git-branch:disabled { cursor: default; }
       }, [root])
 
       useEffect(() => { void load() }, [load])
+
+      // The remote is a property of the repository, not of the change list, so it
+      // loads once per workspace and again after a sync.
+      const loadRemote = useCallback(async () => {
+        if (root === undefined) {
+          setRemote(null)
+          return
+        }
+        try {
+          const reply = await post(ROUTE.remote, { root })
+          setRemote(reply.remote ?? null)
+        } catch {
+          // No remote is the ordinary state of a local-only repository.
+          setRemote(null)
+        }
+      }, [root])
+
+      useEffect(() => { void loadRemote() }, [loadRemote])
 
       // A folder that is not a repository yet is the ordinary first state, so the
       // empty state creates one instead of leaving the pane unusable.
@@ -1615,6 +1697,27 @@ button.dide-git-branch:disabled { cursor: default; }
         }
       }, [root, t])
 
+      // Sync is the only pair of buttons that talks to another machine, so each
+      // one reports its own outcome instead of a shared "something failed".
+      const sync = useCallback(async (action) => {
+        setBusy(true)
+        setSyncing(action)
+        try {
+          await post(ROUTE.sync, { root, action })
+          notify(t(action === 'fetch' ? 'git.fetched' : action === 'pull' ? 'git.pulled' : 'git.pushed'), true)
+          await Promise.all([load(), loadRemote()])
+        } catch (error) {
+          const known = error.reason === 'no-remote' ? t('git.noRemote')
+            : error.reason === 'detached' ? t('git.detached')
+              : error.reason === 'rejected' ? t('git.rejected')
+                : undefined
+          notify(format(t('git.syncFailed'), { reason: known ?? String(error.message ?? error) }), false)
+        } finally {
+          setBusy(false)
+          setSyncing(undefined)
+        }
+      }, [root, load, loadRemote, t])
+
       const commit = useCallback(async () => {
         const trimmed = message.trim()
         if (trimmed === '') return
@@ -1664,6 +1767,38 @@ button.dide-git-branch:disabled { cursor: default; }
         status.ahead === undefined ? undefined : format(t('git.ahead'), { count: status.ahead }),
         status.behind === undefined ? undefined : format(t('git.behind'), { count: status.behind }),
       ].filter(Boolean).join(' · ')
+
+      // One remote line: where this workspace pushes, and the three commands that
+      // talk to it. Everything linkable is built from the remote URL git stores.
+      const remoteReady = remote !== undefined && remote !== null
+      const isGithub = remoteReady && remote.provider === 'github'
+      const syncButton = (action, icon, label) => h('button', {
+        key: action,
+        type: 'button',
+        className: 'dide-icon-button',
+        title: label,
+        'aria-label': label,
+        disabled: busy || !remoteReady,
+        'data-on': syncing === action ? '' : undefined,
+        'data-syncing': syncing === action ? '' : undefined,
+        onClick: () => { void sync(action) },
+      }, icon)
+      const remoteBar = remoteReady
+        ? h('div', { className: 'dide-git-remote', 'data-provider': remote.provider },
+          h('button', {
+            type: 'button', className: 'dide-git-remote-open',
+            title: t('git.openRemote'), 'aria-label': `${t('git.openRemote')} ${remote.web}`,
+            onClick: () => { openExternal(remote.web) },
+          },
+            h('span', { className: 'dide-git-remote-badge' }, isGithub ? 'GitHub' : remote.host),
+            h('span', { className: 'dide-git-remote-path' }, `${remote.owner}/${remote.repo}`),
+            ICON.external()),
+          h('span', { className: 'dide-pane-spacer' }),
+          syncButton('fetch', ICON.cloud(), t('git.fetch')),
+          syncButton('pull', ICON.down(), t('git.pull')),
+          syncButton('push', ICON.up(), t('git.push')),
+        )
+        : null
 
       const group = (title, items, action) => h('div', { className: 'dide-git-group', key: title },
         h('div', { className: 'dide-git-group-title' },
@@ -1766,9 +1901,12 @@ button.dide-git-branch:disabled { cursor: default; }
           h('button', {
             type: 'button', className: 'dide-icon-button', title: t('git.refresh'), 'aria-label': t('git.refresh'),
             disabled: busy || status.phase === 'refreshing',
-            onClick: () => { void load() },
+            // A remote can appear outside the panel (`git remote add`), so a
+            // refresh re-reads it alongside the change list.
+            onClick: () => { void Promise.all([load(), loadRemote()]) },
           }, ICON.refresh()),
         ),
+        remoteBar,
         preview !== undefined && h('div', { className: 'dide-git-preview' },
           h('div', { className: 'dide-git-preview-head' },
             h('span', { className: 'dide-git-preview-title' }, `${preview.staged ? t('git.staged') : t('git.changes')} · ${preview.path}`),
@@ -1789,10 +1927,29 @@ button.dide-git-branch:disabled { cursor: default; }
           h('div', { className: 'dide-git-group-title' }, h('span', null, t('git.history'))),
           log.length === 0
             ? h('div', { className: 'dide-empty' }, t('common.none'))
-            : log.map(entry => h('div', { key: entry.hash, className: 'dide-git-log-row', title: `${entry.hash} · ${entry.author}` },
-              h('span', { className: 'dide-git-log-hash' }, entry.hash),
-              h('span', { className: 'dide-git-log-subject' }, entry.subject),
-              h('span', { className: 'dide-git-log-when' }, entry.when))),
+            : log.map(entry => {
+              // A commit has a page on the provider when the remote is GitHub.
+              const link = isGithub ? `${remote.web}/commit/${entry.hash}` : undefined
+              return h('div', {
+                key: entry.hash,
+                className: 'dide-git-log-row',
+                title: link === undefined ? `${entry.hash} · ${entry.author}` : `${entry.hash} · ${entry.author} — ${t('git.openCommit')}`,
+                ...(link === undefined ? {} : {
+                  role: 'button',
+                  tabIndex: 0,
+                  onClick: () => { openExternal(link) },
+                  onKeyDown: (event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return
+                    event.preventDefault()
+                    openExternal(link)
+                  },
+                }),
+              },
+                h('span', { className: 'dide-git-log-hash' }, entry.hash),
+                h('span', { className: 'dide-git-log-subject' }, entry.subject),
+                h('span', { className: 'dide-git-log-when' }, entry.when),
+                link === undefined ? null : h('span', { className: 'dide-git-log-link' }, ICON.external()))
+            }),
         ),
         h('div', { className: 'dide-pane-body' },
           rows.length === 0

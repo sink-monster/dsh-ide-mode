@@ -418,6 +418,29 @@ for (const name of ['slots', 'locale', 'layout', 'sessions']) {
   ok(source.includes("const LAYOUT_KEY = 'dsh-ide-mode:layout'"), 'the layout has its own namespaced key')
 }
 
+// ── The remote line and its sync commands ──────────────────────────────────
+//
+// GitHub support is a read of what git already knows: the remote URL the
+// repository stores. The client must therefore carry both route spellings, and
+// every new label must exist in both dictionaries, or the buttons print keys.
+{
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  ok(source.includes("remote: 'ide-mode/git/remote'"), 'the remote route is mirrored from the host')
+  ok(source.includes("sync: 'ide-mode/git/sync'"), 'the sync route is mirrored from the host')
+  ok(source.includes("className: 'dide-git-remote'"), 'the pane renders a remote line')
+  ok(/function openExternal\(url\)/.test(source) && source.includes("url, '_blank'"),
+    'a repository link opens in the browser instead of the app window')
+  const keys = ['git.fetch', 'git.pull', 'git.push', 'git.fetched', 'git.pulled', 'git.pushed',
+    'git.syncFailed', 'git.noRemote', 'git.rejected', 'git.openRemote', 'git.openCommit']
+  for (const key of keys) {
+    const literal = `'${key}':`
+    const hits = source.split(literal).length - 1
+    ok(hits === 2, `${key} exists in both dictionaries`, `${String(hits)} definition(s)`)
+  }
+  // A push that was rejected must not be reported as a broken pane.
+  ok(source.includes("error.reason === 'rejected'"), 'a rejected push has its own message')
+}
+
 console.log(`\n${String(checks - failures)}/${String(checks)} checks passed`)
 if (failures > 0) {
   console.error(`${String(failures)} failed`)
