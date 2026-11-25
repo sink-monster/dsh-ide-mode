@@ -90,6 +90,8 @@ No build step and no runtime dependencies; both halves are plain source files.
 4. Click **Install**, then **Enable now**.
 5. Restart DeepSeek Harness. The switch appears above **New chat**.
 
+![The Add plugin dialog with the repository address filled in](docs/images/install-dialog.png)
+
 The plugin manager downloads the package and registers it with the profile, so
 there is no bundle list to edit. If the machine cannot reach GitHub, download the
 tarball from [Releases](https://github.com/sink-monster/dsh-ide-mode/releases),

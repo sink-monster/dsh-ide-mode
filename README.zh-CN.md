@@ -75,6 +75,8 @@ DeepSeek Harness 的 IDE 模式插件。它在对话页左上角加一个开关�
 4. 点**安装**，装好后点**立即启用**。
 5. 重启 DeepSeek Harness。开关会出现在**新会话**上方。
 
+![添加插件对话框，地址已填好](docs/images/install-dialog.png)
+
 插件管理器会把包装到 profile 里并完成登记，不需要再手动改 bundle 列表。如果这台机器连不上
 GitHub，可以从 [Releases](https://github.com/sink-monster/dsh-ide-mode/releases) 下载 tgz，
 解压后在第 3 步填那个文件夹的路径 —— GitHub 地址是直连下载、不走安装源，换安装源在这里没用。
