@@ -77,14 +77,41 @@ No build step and no runtime dependencies; both halves are plain source files.
 
 ## Installation
 
-**From GitHub**
+### From the app
+
+1. Open **Plugins** in the DeepSeek Harness sidebar.
+2. Click **Add plugin**, then **Install a third-party plugin**.
+3. Paste the repository address:
+
+   ```
+   https://github.com/sink-monster/dsh-ide-mode
+   ```
+
+4. Click **Install**, then **Enable now**.
+5. Restart DeepSeek Harness. The switch appears above **New chat**.
+
+The plugin manager downloads the package and registers it with the profile, so
+there is no bundle list to edit. If the machine cannot reach GitHub, download the
+tarball from [Releases](https://github.com/sink-monster/dsh-ide-mode/releases),
+unpack it, and point step 3 at that folder instead — a GitHub address is fetched
+directly and does not go through the install registry, so switching registries
+does not help there.
+
+### From the command line
+
+Requires `pnpm` on the machine, since `dsh plugin` forwards its arguments to
+`pnpm` inside the profile directory.
 
 ```bash
+# from the repository
 dsh plugin --profile desktop add github:sink-monster/dsh-ide-mode
+
+# or from a release tarball
+dsh plugin --profile desktop add ./dsh-ide-mode-1.1.0.tgz
 ```
 
-Then add the package to the profile's bundle list in
-`profiles/<name>/package.json`:
+Unlike the app, the CLI does not register the package for you: add `dsh-ide-mode`
+to the profile's bundle list in `profiles/<name>/package.json`.
 
 ```json
 {
@@ -96,24 +123,28 @@ Then add the package to the profile's bundle list in
 }
 ```
 
-**From a tarball**
+Then reload the window. The packaged desktop app has no reload shortcut, so
+either run `location.reload()` in the devtools console (`Ctrl+Shift+I`) or
+restart the app.
 
-```bash
-git clone https://github.com/sink-monster/dsh-ide-mode.git
-cd dsh-ide-mode && pnpm pack          # dsh-ide-mode-1.1.0.tgz
-dsh plugin --profile desktop add ./dsh-ide-mode-1.1.0.tgz
-```
-
-**For development**
+### From a local checkout
 
 ```bash
 git clone https://github.com/sink-monster/dsh-ide-mode.git
 dsh plugin --profile desktop add ./dsh-ide-mode
 ```
 
-`dsh plugin` forwards its arguments to `pnpm` inside the profile directory, so
-any spec pnpm accepts works. Reload the window afterwards; in the packaged
-desktop app use `Ctrl+Shift+I` and run `location.reload()`, or restart the app.
+Adding the same path through **Add plugin → local directory** skips the bundle
+list edit as well.
+
+### If the switch does not appear
+
+| Symptom | What it means |
+| --- | --- |
+| **Install** fails with "Cannot access GitHub" | The desktop machine cannot reach GitHub. Install from the release tarball or an unpacked folder instead. |
+| Install succeeds, restart, still no switch | The profile does not load the bundle. In the app path this is handled for you; after a CLI install check that `dsh-ide-mode` is in `dsh.profile.bundles`. |
+| Console shows `1 entry did not activate` / `import failed` | Same cause as above: the package is on disk but not registered as a profile layer. |
+| Console shows a `404` for `plugins/??dsh-ide-mode/client.js&rev=…` | A stale revision from before the last change. Reload once and it goes away. |
 
 ### Requirements
 
@@ -123,6 +154,10 @@ desktop app use `Ctrl+Shift+I` and run `location.reload()`, or restart the app.
   `Program Files\Git\…`, a portable `PortableGit`, or the ops shell bundle. Only
   a regular file is accepted.
 - A current Chromium, WebKit or Firefox build for the client half.
+
+The desktop app already carries `dsh-web-app`; only a stripped-down profile needs
+it added. Tested on Windows; the macOS and Linux paths are written but have not
+been run.
 
 ## Usage
 

@@ -62,13 +62,37 @@ DeepSeek Harness 的 IDE 模式插件。它在对话页左上角加一个开关�
 
 ## 安装
 
-**从 GitHub 安装**
+### 在应用里装（不用命令行）
+
+1. 打开 DeepSeek Harness 侧栏的**插件**。
+2. 点**添加插件**，选**安装第三方插件**。
+3. 填入仓库地址：
+
+   ```
+   https://github.com/sink-monster/dsh-ide-mode
+   ```
+
+4. 点**安装**，装好后点**立即启用**。
+5. 重启 DeepSeek Harness。开关会出现在**新会话**上方。
+
+插件管理器会把包装到 profile 里并完成登记，不需要再手动改 bundle 列表。如果这台机器连不上
+GitHub，可以从 [Releases](https://github.com/sink-monster/dsh-ide-mode/releases) 下载 tgz，
+解压后在第 3 步填那个文件夹的路径 —— GitHub 地址是直连下载、不走安装源，换安装源在这里没用。
+
+### 用命令行装
+
+需要本机有 `pnpm`，因为 `dsh plugin` 会把参数转发给 profile 目录里的 pnpm。
 
 ```bash
+# 从仓库装
 dsh plugin --profile desktop add github:sink-monster/dsh-ide-mode
+
+# 或从 release 的 tgz 装
+dsh plugin --profile desktop add ./dsh-ide-mode-1.1.0.tgz
 ```
 
-然后把包名写进 profile 的 `package.json` 里的 bundle 列表：
+和图形界面不同，命令行不会替你登记，还要把 `dsh-ide-mode` 写进 profile 的
+`profiles/<名字>/package.json` 的 bundle 列表：
 
 ```json
 {
@@ -80,23 +104,26 @@ dsh plugin --profile desktop add github:sink-monster/dsh-ide-mode
 }
 ```
 
-**用本地打好的包安装**
+之后刷新窗口。打包版桌面应用没有刷新快捷键，可以在控制台（`Ctrl+Shift+I`）里执行
+`location.reload()`，或者直接重启应用。
 
-```bash
-git clone https://github.com/sink-monster/dsh-ide-mode.git
-cd dsh-ide-mode && pnpm pack          # 得到 dsh-ide-mode-1.1.0.tgz
-dsh plugin --profile desktop add ./dsh-ide-mode-1.1.0.tgz
-```
-
-**开发时直接用目录**
+### 从本地目录装
 
 ```bash
 git clone https://github.com/sink-monster/dsh-ide-mode.git
 dsh plugin --profile desktop add ./dsh-ide-mode
 ```
 
-`dsh plugin` 会把参数转发给 profile 目录里的 `pnpm`，所以 pnpm 支持的写法都能用。装完刷新
-窗口；打包版桌面应用里按 `Ctrl+Shift+I` 打开控制台执行 `location.reload()`，或直接重启应用。
+在**添加插件 → 本地目录**里填同一个路径，也一样不用改 bundle 列表。
+
+### 开关没出现怎么查
+
+| 现象 | 说明 |
+| --- | --- |
+| 点**安装**报「无法访问 GitHub」 | 这台机器连不上 GitHub。改从 release 的 tgz 或解压后的文件夹安装。 |
+| 装完、重启了，还是没开关 | profile 没加载这个组合包。走图形界面会自动登记；走命令行装的话，检查 `dsh.profile.bundles` 里有没有 `dsh-ide-mode`。 |
+| 控制台出现 `1 entry did not activate` / `import failed` | 同上：包在磁盘上，但没登记成 profile 的一层。 |
+| 控制台出现 `plugins/??dsh-ide-mode/client.js&rev=…` 的 `404` | 上一次改动留下的旧 revision，刷新一次就没了。 |
 
 ### 环境要求
 
@@ -105,6 +132,9 @@ dsh plugin --profile desktop add ./dsh-ide-mode
 - `PATH` 里有 Git，或位于下列之一：`D:\Soft Ware\Git\cmd\git.exe`、`Program Files\Git\…`、
   便携版 `PortableGit`、ops shell 自带的 git。只接受真实文件，目录会被跳过。
 - 较新的 Chromium、WebKit 或 Firefox，供浏览器半使用。
+
+桌面应用里已经带了 `dsh-web-app`，只有精简过的 profile 才需要另外加。目前只在 Windows 上
+跑过，macOS 和 Linux 的代码路径写了但没实测。
 
 ## 使用
 
